@@ -1,6 +1,7 @@
 package logops
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"testing"
@@ -9,9 +10,12 @@ import (
 
 func testFormatJSON(t *testing.T, l *Logger, localCx C, lvlWanted Level, msgWanted, format string, params ...interface{}) {
 	var obj map[string]string
+	var buffer bytes.Buffer
 
 	start := time.Now()
-	res := l.formatJSON(lvlWanted, localCx, format, params...)
+
+	l.formatJSON(&buffer, lvlWanted, localCx, format, params...)
+	res := buffer.Bytes()
 	end := time.Now()
 
 	err := json.Unmarshal(res, &obj)
