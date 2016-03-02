@@ -58,12 +58,7 @@ func testFormatJSON(t *testing.T, l *Logger, localCx C, lvlWanted Level, msgWant
 
 func TestSimpleMessageJSON(t *testing.T) {
 	l := Logger{}
-	for _, lvlWanted := range []Level{
-		Debug,
-		Info,
-		Warn,
-		Error,
-		Fatal} {
+	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
 		for _, msgWanted := range []string{
 			"",
 			"a",
@@ -78,12 +73,7 @@ func TestSimpleMessageJSON(t *testing.T) {
 
 func TestComplexMessage(t *testing.T) {
 	l := Logger{}
-	for _, lvlWanted := range []Level{
-		Debug,
-		Info,
-		Warn,
-		Error,
-		Fatal} {
+	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
 		for i, text := range []string{
 			"",
 			"a",
@@ -96,4 +86,39 @@ func TestComplexMessage(t *testing.T) {
 			testFormatJSON(t, &l, nil, lvlWanted, cmpl, format, text, []int{1, i}, float64(i))
 		}
 	}
+}
+
+func testLevel(t *testing.T, levelMethod Level, method func(l *Logger, message string, params ...interface{})) {
+	var buffer bytes.Buffer
+	l := NewLogger(nil)
+	l.Writer = &buffer
+	for loggerLevel := All; loggerLevel <= levelMethod; loggerLevel++ {
+		l.Level = loggerLevel
+		method(l, "a not very long message")
+		if buffer.Len() == 0 {
+			t.Errorf("log not written for method %s when level %s", levelNames[levelMethod], levelNames[loggerLevel])
+		}
+	}
+	for loggerLevel := levelMethod; loggerLevel < None; loggerLevel++ {
+		l.Level = loggerLevel
+		buffer.Reset()
+		method(l, "another short message")
+		if buffer.Len() > 0 {
+			t.Errorf("log written for method %s when level %s", levelNames[levelMethod], levelNames[loggerLevel])
+		}
+	}
+}
+
+func testLevelC(t *testing.T, levelMethod Level, method func(l *Logger, context C, message string, params ...interface{})) {
+	testLevel(t, levelMethod, func(l *Logger, message string, params ...interface{}) {
+		method(l, nil, message, params...)
+	})
+}
+
+func TestInfo(t *testing.T) {
+	testLevel(t, Info, (*Logger).Info)
+}
+
+func TestInfoC(t *testing.T) {
+	testLevelC(t, Info, (*Logger).InfoC)
 }

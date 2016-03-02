@@ -14,7 +14,7 @@ var pool = sync.Pool{New: func() interface{} { return &bytes.Buffer{} }}
 type Level int
 
 const (
-	All = iota
+	All Level = iota
 	Debug
 	Info
 	Warn
