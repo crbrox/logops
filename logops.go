@@ -76,7 +76,7 @@ func (l *Logger) formatJSON(buffer *bytes.Buffer, level Level, localCx C, messag
 	fmt.Fprintln(buffer)
 }
 
-func (l *Logger) logC(lvl Level, context C, message string, params []interface{}) {
+func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}) {
 	buffer := pool.Get().(*bytes.Buffer)
 
 	l.formatJSON(buffer, lvl, context, message, params...)
@@ -91,8 +91,8 @@ func (l *Logger) logC(lvl Level, context C, message string, params []interface{}
 	pool.Put(buffer)
 }
 func (l *Logger) InfoC(context C, message string, params ...interface{}) {
-	l.logC(Info, context, message, params)
+	l.LogC(Info, context, message, params)
 }
 func (l *Logger) Info(message string, params ...interface{}) {
-	l.InfoC(nil, message, params...)
+	l.LogC(Info, nil, message, params)
 }
