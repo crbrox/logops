@@ -14,22 +14,30 @@ var pool = sync.Pool{New: func() interface{} { return &bytes.Buffer{} }}
 type Level int
 
 const (
-	None = iota
+	All = iota
 	Debug
 	Info
 	Warn
 	Error
 	Fatal
+	None
 )
 
 var levelNames = [...]string{
-	None:  "NONE",
+	All:   "ALL",
 	Debug: "DEBUG",
 	Info:  "INFO",
 	Warn:  "WARN",
 	Error: "ERROR",
 	Fatal: "FATAL",
+	None:  "NONE",
 }
+
+var (
+	prefixFormat  = `{"time":%q, "lvl":%q`
+	fieldFormat   = ",%q:%q"
+	postfixFormat = `,"msg":%q}`
+)
 
 type C map[string]string
 
@@ -48,51 +56,55 @@ func NewLogger(context C) *Logger {
 func (l *Logger) formatJSON(buffer *bytes.Buffer, level Level, localCx C, message string, params ...interface{}) {
 	var dynCx C
 
-	fmt.Fprintf(buffer, `{"time":%q, "lvl":%q`, time.Now().Format(time.RFC3339Nano), levelNames[level])
+	fmt.Fprintf(buffer, prefixFormat, time.Now().Format(time.RFC3339Nano), levelNames[level])
 	for k, v := range localCx {
-		fmt.Fprintf(buffer, ",%q:%q", k, v)
+		fmt.Fprintf(buffer, fieldFormat, k, v)
 	}
 	if l.ContextFunc != nil {
 		dynCx = l.ContextFunc()
 		for k, v := range dynCx {
 			if _, already := localCx[k]; !already {
-				fmt.Fprintf(buffer, ",%q:%q", k, v)
+				fmt.Fprintf(buffer, fieldFormat, k, v)
 			}
 		}
 	}
 	for k, v := range l.Context {
 		if _, already := localCx[k]; !already {
 			if _, already := dynCx[k]; !already {
-				fmt.Fprintf(buffer, ",%q:%q", k, v)
+				fmt.Fprintf(buffer, fieldFormat, k, v)
 			}
 		}
 	}
 	if len(params) == 0 {
-		fmt.Fprintf(buffer, `,"msg":%q}`, message)
+		fmt.Fprintf(buffer, postfixFormat, message)
 	} else {
 		m := fmt.Sprintf(message, params...)
-		fmt.Fprintf(buffer, `,"msg":%q}`, m)
+		fmt.Fprintf(buffer, postfixFormat, m)
 	}
 	fmt.Fprintln(buffer)
 }
 
 func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}) {
-	buffer := pool.Get().(*bytes.Buffer)
+	if l.Level < lvl {
+		buffer := pool.Get().(*bytes.Buffer)
 
-	l.formatJSON(buffer, lvl, context, message, params...)
-	l.mu.Lock()
-	_, err := l.Writer.Write(buffer.Bytes())
-	l.mu.Unlock()
-	if err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		l.formatJSON(buffer, lvl, context, message, params...)
+		l.mu.Lock()
+		_, err := l.Writer.Write(buffer.Bytes())
+		l.mu.Unlock()
+		if err != nil {
+			fmt.Fprintln(os.Stderr, err)
+		}
+
+		buffer.Reset()
+		pool.Put(buffer)
 	}
-
-	buffer.Reset()
-	pool.Put(buffer)
 }
+
 func (l *Logger) InfoC(context C, message string, params ...interface{}) {
 	l.LogC(Info, context, message, params)
 }
+
 func (l *Logger) Info(message string, params ...interface{}) {
 	l.LogC(Info, nil, message, params)
 }
