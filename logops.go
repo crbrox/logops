@@ -85,7 +85,7 @@ func (l *Logger) formatJSON(buffer *bytes.Buffer, level Level, localCx C, messag
 }
 
 func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}) {
-	if l.Level < lvl {
+	if l.Level <= lvl {
 		buffer := pool.Get().(*bytes.Buffer)
 
 		l.formatJSON(buffer, lvl, context, message, params...)

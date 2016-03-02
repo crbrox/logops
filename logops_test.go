@@ -94,12 +94,13 @@ func testLevel(t *testing.T, levelMethod Level, method func(l *Logger, message s
 	l.Writer = &buffer
 	for loggerLevel := All; loggerLevel <= levelMethod; loggerLevel++ {
 		l.Level = loggerLevel
+		buffer.Reset()
 		method(l, "a not very long message")
 		if buffer.Len() == 0 {
 			t.Errorf("log not written for method %s when level %s", levelNames[levelMethod], levelNames[loggerLevel])
 		}
 	}
-	for loggerLevel := levelMethod; loggerLevel < None; loggerLevel++ {
+	for loggerLevel := levelMethod + 1; loggerLevel < None; loggerLevel++ {
 		l.Level = loggerLevel
 		buffer.Reset()
 		method(l, "another short message")
