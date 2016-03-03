@@ -88,14 +88,21 @@ func TestComplexMessage(t *testing.T) {
 	}
 }
 
-func testLevel(t *testing.T, levelMethod Level, method func(l *Logger, message string, params ...interface{})) {
+type (
+	contextLogFunc    func(l *Logger, context C, message string, params ...interface{})
+	formatLogFunc     func(l *Logger, message string, params ...interface{})
+	simpleLogFunction func(l *Logger, message string)
+)
+
+func testLevelC(t *testing.T, levelMethod Level, method contextLogFunc) {
 	var buffer bytes.Buffer
 	l := NewLogger(nil)
+	ctx := C{"trying": "something"}
 	l.Writer = &buffer
 	for loggerLevel := All; loggerLevel <= levelMethod; loggerLevel++ {
 		l.Level = loggerLevel
 		buffer.Reset()
-		method(l, "a not very long message")
+		method(l, ctx, "a not very long message")
 		if buffer.Len() == 0 {
 			t.Errorf("log not written for method %s when level %s", levelNames[levelMethod], levelNames[loggerLevel])
 		}
@@ -103,17 +110,29 @@ func testLevel(t *testing.T, levelMethod Level, method func(l *Logger, message s
 	for loggerLevel := levelMethod + 1; loggerLevel < None; loggerLevel++ {
 		l.Level = loggerLevel
 		buffer.Reset()
-		method(l, "another short message")
+		method(l, ctx, "another short message")
 		if buffer.Len() > 0 {
 			t.Errorf("log written for method %s when level %s", levelNames[levelMethod], levelNames[loggerLevel])
 		}
 	}
 }
 
-func testLevelC(t *testing.T, levelMethod Level, method func(l *Logger, context C, message string, params ...interface{})) {
-	testLevel(t, levelMethod, func(l *Logger, message string, params ...interface{}) {
-		method(l, nil, message, params...)
+func testLevelf(t *testing.T, levelMethod Level, method formatLogFunc) {
+
+	testLevelC(t, levelMethod, func(l *Logger, ctx C, message string, params ...interface{}) {
+		method(l, message, params...)
 	})
+}
+
+func testLevel(t *testing.T, levelMethod Level, method simpleLogFunction) {
+
+	testLevelC(t, levelMethod, func(l *Logger, ctx C, message string, params ...interface{}) {
+		method(l, message)
+	})
+}
+
+func TestInfof(t *testing.T) {
+	testLevelf(t, Info, (*Logger).Infof)
 }
 
 func TestInfo(t *testing.T) {

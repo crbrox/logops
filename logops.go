@@ -105,6 +105,10 @@ func (l *Logger) InfoC(context C, message string, params ...interface{}) {
 	l.LogC(Info, context, message, params)
 }
 
-func (l *Logger) Info(message string, params ...interface{}) {
+func (l *Logger) Infof(message string, params ...interface{}) {
 	l.LogC(Info, nil, message, params)
+}
+
+func (l *Logger) Info(message string) {
+	l.LogC(Info, nil, message, nil)
 }
