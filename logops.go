@@ -84,7 +84,7 @@ func (l *Logger) formatJSON(buffer *bytes.Buffer, level Level, localCx C, messag
 	fmt.Fprintln(buffer)
 }
 
-func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}) {
+func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}) error {
 	if l.Level <= lvl {
 		buffer := pool.Get().(*bytes.Buffer)
 
@@ -92,13 +92,13 @@ func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}
 		l.mu.Lock()
 		_, err := l.Writer.Write(buffer.Bytes())
 		l.mu.Unlock()
-		if err != nil {
-			fmt.Fprintln(os.Stderr, err)
-		}
 
 		buffer.Reset()
 		pool.Put(buffer)
+
+		return err
 	}
+	return nil
 }
 
 func (l *Logger) InfoC(context C, message string, params ...interface{}) {
