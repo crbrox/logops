@@ -26,7 +26,7 @@ func testFormatJSON(t *testing.T, l *Logger, localCx C, lvlWanted Level, msgWant
 
 	start := time.Now()
 
-	l.formatJSON(&buffer, lvlWanted, localCx, format, params...)
+	l.format(&buffer, lvlWanted, localCx, format, params...)
 	res := buffer.Bytes()
 	end := time.Now()
 

@@ -5,9 +5,19 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strings"
 	"sync"
 	"time"
 )
+
+func init() {
+	format := os.Getenv("LOGOPS_FORMAT")
+	if strings.ToLower(format) == "dev" {
+		setTextFormat()
+	} else {
+		setJSONFormat()
+	}
+}
 
 var pool = sync.Pool{New: func() interface{} { return &bytes.Buffer{} }}
 
@@ -34,9 +44,10 @@ var levelNames = [...]string{
 }
 
 var (
-	prefixFormat  = `{"time":%q, "lvl":%q`
-	fieldFormat   = ",%q:%q"
-	postfixFormat = `,"msg":%q}`
+	timeFormat    string
+	formatPrefix  string
+	formatField   string
+	formatPostfix string
 )
 
 type C map[string]string
@@ -53,33 +64,47 @@ func NewLogger(context C) *Logger {
 	return &Logger{Writer: os.Stdout, Context: context}
 }
 
-func (l *Logger) formatJSON(buffer *bytes.Buffer, level Level, localCx C, message string, params ...interface{}) {
+func setJSONFormat() {
+	timeFormat = time.RFC3339Nano
+	formatPrefix = `{"time":%q, "lvl":%q`
+	formatField = ",%q:%q"
+	formatPostfix = `,"msg":%q}`
+}
+
+func setTextFormat() {
+	timeFormat = "15:04:05.000"
+	formatPrefix = "%s %s\t" // time and level
+	formatField = " [%s=%s]" // key and value
+	formatPostfix = " %s"    // message
+}
+
+func (l *Logger) format(buffer *bytes.Buffer, level Level, localCx C, message string, params ...interface{}) {
 	var dynCx C
 
-	fmt.Fprintf(buffer, prefixFormat, time.Now().Format(time.RFC3339Nano), levelNames[level])
+	fmt.Fprintf(buffer, formatPrefix, time.Now().Format(timeFormat), levelNames[level])
 	for k, v := range localCx {
-		fmt.Fprintf(buffer, fieldFormat, k, v)
+		fmt.Fprintf(buffer, formatField, k, v)
 	}
 	if l.ContextFunc != nil {
 		dynCx = l.ContextFunc()
 		for k, v := range dynCx {
 			if _, already := localCx[k]; !already {
-				fmt.Fprintf(buffer, fieldFormat, k, v)
+				fmt.Fprintf(buffer, formatField, k, v)
 			}
 		}
 	}
 	for k, v := range l.Context {
 		if _, already := localCx[k]; !already {
 			if _, already := dynCx[k]; !already {
-				fmt.Fprintf(buffer, fieldFormat, k, v)
+				fmt.Fprintf(buffer, formatField, k, v)
 			}
 		}
 	}
 	if len(params) == 0 {
-		fmt.Fprintf(buffer, postfixFormat, message)
+		fmt.Fprintf(buffer, formatPostfix, message)
 	} else {
 		m := fmt.Sprintf(message, params...)
-		fmt.Fprintf(buffer, postfixFormat, m)
+		fmt.Fprintf(buffer, formatPostfix, m)
 	}
 	fmt.Fprintln(buffer)
 }
@@ -88,7 +113,7 @@ func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}
 	if l.Level <= lvl {
 		buffer := pool.Get().(*bytes.Buffer)
 
-		l.formatJSON(buffer, lvl, context, message, params...)
+		l.format(buffer, lvl, context, message, params...)
 		l.mu.Lock()
 		_, err := l.Writer.Write(buffer.Bytes())
 		l.mu.Unlock()
