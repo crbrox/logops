@@ -20,13 +20,13 @@ var stringsForTesting = []string{
 var contextForTesting = C{"a": "A", "b": "BB", "España": "olé",
 	"She said": `I know what it's like to be dead"`, "{": "}"}
 
-func testFormatJSON(t *testing.T, l *Logger, localCx C, lvlWanted Level, msgWanted, format string, params ...interface{}) {
+func testFormatJSON(t *testing.T, l *Logger, contextFromArg C, lvlWanted Level, msgWanted, format string, params ...interface{}) {
 	var obj map[string]string
 	var buffer bytes.Buffer
 
 	start := time.Now()
 
-	l.format(&buffer, lvlWanted, localCx, format, params...)
+	l.format(&buffer, lvlWanted, contextFromArg, format, params...)
 	res := buffer.Bytes()
 	end := time.Now()
 
@@ -66,7 +66,7 @@ func testFormatJSON(t *testing.T, l *Logger, localCx C, lvlWanted Level, msgWant
 		t.Errorf("level: wanted %q, got %q", msgWanted, msg)
 	}
 
-	for k, v := range localCx {
+	for k, v := range contextFromArg {
 		value, ok := obj[k]
 		if !ok {
 			t.Errorf("missing local context field %s", k)
@@ -76,12 +76,13 @@ func testFormatJSON(t *testing.T, l *Logger, localCx C, lvlWanted Level, msgWant
 		}
 	}
 
-	var funcCx C
-	if l.ContextFunc != nil {
-		funcCx = l.ContextFunc()
+	var contextFromFunction C
+	var function = l.contextFunc.Load().(func() C)
+	if function != nil {
+		contextFromFunction = function()
 	}
-	for k, v := range funcCx {
-		if _, ok := localCx[k]; !ok {
+	for k, v := range contextFromFunction {
+		if _, ok := contextFromArg[k]; !ok {
 			value, ok := obj[k]
 			if !ok {
 				t.Errorf("missing func context field %s", k)
@@ -92,9 +93,9 @@ func testFormatJSON(t *testing.T, l *Logger, localCx C, lvlWanted Level, msgWant
 		}
 	}
 
-	for k, v := range l.Context {
-		if _, ok := localCx[k]; !ok {
-			if _, ok := funcCx[k]; !ok {
+	for k, v := range l.context.Load().(C) {
+		if _, ok := contextFromArg[k]; !ok {
+			if _, ok := contextFromFunction[k]; !ok {
 				value, ok := obj[k]
 				if !ok {
 					t.Errorf("missing logger context field %s", k)
@@ -108,48 +109,50 @@ func testFormatJSON(t *testing.T, l *Logger, localCx C, lvlWanted Level, msgWant
 }
 
 func TestSimpleMessageJSON(t *testing.T) {
-	l := Logger{}
+	l := NewLogger()
 	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
-			testFormatJSON(t, &l, nil, lvlWanted, msgWanted, msgWanted)
+			testFormatJSON(t, l, nil, lvlWanted, msgWanted, msgWanted)
 		}
 	}
 }
 
 func TestComplexMessage(t *testing.T) {
-	l := Logger{}
+	l := NewLogger()
 	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
 		for i, text := range stringsForTesting {
 			format := "%s,%#v,%f"
 			cmpl := fmt.Sprintf(format, text, []int{1, i}, float64(i))
-			testFormatJSON(t, &l, nil, lvlWanted, cmpl, format, text, []int{1, i}, float64(i))
+			testFormatJSON(t, l, nil, lvlWanted, cmpl, format, text, []int{1, i}, float64(i))
 		}
 	}
 }
 
 func TestLocalContext(t *testing.T) {
-	l := Logger{}
+	l := NewLogger()
 	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
-			testFormatJSON(t, &l, contextForTesting, lvlWanted, msgWanted, msgWanted)
+			testFormatJSON(t, l, contextForTesting, lvlWanted, msgWanted, msgWanted)
 		}
 	}
 }
 
 func TestFuncContext(t *testing.T) {
-	l := Logger{ContextFunc: func() C { return contextForTesting }}
+	l := NewLogger()
+	l.SetContextFunc(func() C { return contextForTesting })
 	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
-			testFormatJSON(t, &l, nil, lvlWanted, msgWanted, msgWanted)
+			testFormatJSON(t, l, nil, lvlWanted, msgWanted, msgWanted)
 		}
 	}
 }
 
 func TestLoggerContext(t *testing.T) {
-	l := Logger{Context: contextForTesting}
+	l := NewLogger()
+	l.SetContext(contextForTesting)
 	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
-			testFormatJSON(t, &l, nil, lvlWanted, msgWanted, msgWanted)
+			testFormatJSON(t, l, nil, lvlWanted, msgWanted, msgWanted)
 		}
 	}
 }
@@ -164,11 +167,10 @@ type (
 
 func testLevelC(t *testing.T, levelMethod Level, method contextLogFunc) {
 	var buffer bytes.Buffer
-	l := NewLogger(nil)
+	l := NewLoggerWithWriter(&buffer)
 	ctx := C{"trying": "something"}
-	l.Writer = &buffer
 	for loggerLevel := All; loggerLevel <= levelMethod; loggerLevel++ {
-		l.Level = loggerLevel
+		l.SetLevel(loggerLevel)
 		buffer.Reset()
 		method(l, ctx, "a not very long message")
 		if buffer.Len() == 0 {
@@ -176,7 +178,7 @@ func testLevelC(t *testing.T, levelMethod Level, method contextLogFunc) {
 		}
 	}
 	for loggerLevel := levelMethod + 1; loggerLevel < None; loggerLevel++ {
-		l.Level = loggerLevel
+		l.SetLevel(loggerLevel)
 		buffer.Reset()
 		method(l, ctx, "another short message")
 		if buffer.Len() > 0 {
@@ -200,15 +202,15 @@ func testLevel(t *testing.T, levelMethod Level, method simpleLogFunction) {
 }
 
 func TestInfof(t *testing.T) {
-	testLevelf(t, Info, (*Logger).Infof)
+	testLevelf(t, InfoLevel, (*Logger).Infof)
 }
 
 func TestInfo(t *testing.T) {
-	testLevel(t, Info, (*Logger).Info)
+	testLevel(t, InfoLevel, (*Logger).Info)
 }
 
 func TestInfoC(t *testing.T) {
-	testLevelC(t, Info, (*Logger).InfoC)
+	testLevelC(t, InfoLevel, (*Logger).InfoC)
 }
 
 type TestingBadWriter struct{}
@@ -220,7 +222,7 @@ func (TestingBadWriter) Write(b []byte) (int, error) {
 }
 
 func TestWriteErr(t *testing.T) {
-	l := Logger{Writer: TestingBadWriter{}}
+	l := NewLoggerWithWriter(TestingBadWriter{})
 	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
 			err := l.LogC(lvlWanted, contextForTesting, msgWanted, nil)

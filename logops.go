@@ -7,8 +7,44 @@ import (
 	"os"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 )
+
+const (
+	All Level = iota
+	DebugLevel
+	InfoLevel
+	WarnLevel
+	ErrorLevel
+	CriticalLevel
+	None
+)
+
+type C map[string]string
+
+var bufferPool = sync.Pool{New: func() interface{} { return &bytes.Buffer{} }}
+
+type Level int
+
+var levelNames = [...]string{
+	All:           "ALL",
+	DebugLevel:    "DEBUG",
+	InfoLevel:     "INFO",
+	WarnLevel:     "WARN",
+	ErrorLevel:    "ERROR",
+	CriticalLevel: "FATAL",
+	None:          "NONE",
+}
+
+var (
+	timeFormat    string
+	formatPrefix  string
+	formatField   string
+	formatPostfix string
+)
+
+var defaultLogger = NewLogger()
 
 func init() {
 	format := os.Getenv("LOGOPS_FORMAT")
@@ -19,49 +55,24 @@ func init() {
 	}
 }
 
-var pool = sync.Pool{New: func() interface{} { return &bytes.Buffer{} }}
-
-type Level int
-
-const (
-	All Level = iota
-	Debug
-	Info
-	Warn
-	Error
-	Fatal
-	None
-)
-
-var levelNames = [...]string{
-	All:   "ALL",
-	Debug: "DEBUG",
-	Info:  "INFO",
-	Warn:  "WARN",
-	Error: "ERROR",
-	Fatal: "FATAL",
-	None:  "NONE",
-}
-
-var (
-	timeFormat    string
-	formatPrefix  string
-	formatField   string
-	formatPostfix string
-)
-
-type C map[string]string
-
 type Logger struct {
-	ContextFunc func() C
-	Context     C
-	Level       Level
+	contextFunc atomic.Value
+	context     atomic.Value
+	level       int32
+	writer      io.Writer
 	mu          sync.Mutex
-	Writer      io.Writer
 }
 
-func NewLogger(context C) *Logger {
-	return &Logger{Writer: os.Stdout, Context: context}
+func NewLogger() *Logger {
+	return NewLoggerWithWriter(io.Writer(os.Stdout))
+}
+func NewLoggerWithWriter(w io.Writer) *Logger {
+	l := &Logger{}
+	l.SetContextFunc(func() C { return nil })
+	l.SetContext(C(nil))
+	l.SetLevel(All)
+	l.writer = w
+	return l
 }
 
 func setJSONFormat() {
@@ -79,23 +90,25 @@ func setTextFormat() {
 }
 
 func (l *Logger) format(buffer *bytes.Buffer, level Level, localCx C, message string, params ...interface{}) {
-	var dynCx C
+	var dynamicContext C
 
 	fmt.Fprintf(buffer, formatPrefix, time.Now().Format(timeFormat), levelNames[level])
 	for k, v := range localCx {
 		fmt.Fprintf(buffer, formatField, k, v)
 	}
-	if l.ContextFunc != nil {
-		dynCx = l.ContextFunc()
-		for k, v := range dynCx {
+	contextFunc := l.contextFunc.Load().(func() C)
+	if contextFunc != nil {
+		dynamicContext = contextFunc()
+		for k, v := range dynamicContext {
 			if _, already := localCx[k]; !already {
 				fmt.Fprintf(buffer, formatField, k, v)
 			}
 		}
 	}
-	for k, v := range l.Context {
+	loggerContext := l.context.Load().(C)
+	for k, v := range loggerContext {
 		if _, already := localCx[k]; !already {
-			if _, already := dynCx[k]; !already {
+			if _, already := dynamicContext[k]; !already {
 				fmt.Fprintf(buffer, formatField, k, v)
 			}
 		}
@@ -110,16 +123,16 @@ func (l *Logger) format(buffer *bytes.Buffer, level Level, localCx C, message st
 }
 
 func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}) error {
-	if l.Level <= lvl {
-		buffer := pool.Get().(*bytes.Buffer)
+	if Level(atomic.LoadInt32(&l.level)) <= lvl {
+		buffer := bufferPool.Get().(*bytes.Buffer)
 
 		l.format(buffer, lvl, context, message, params...)
 		l.mu.Lock()
-		_, err := l.Writer.Write(buffer.Bytes())
+		_, err := l.writer.Write(buffer.Bytes())
 		l.mu.Unlock()
 
 		buffer.Reset()
-		pool.Put(buffer)
+		bufferPool.Put(buffer)
 
 		return err
 	}
@@ -127,13 +140,62 @@ func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}
 }
 
 func (l *Logger) InfoC(context C, message string, params ...interface{}) {
-	l.LogC(Info, context, message, params)
+	l.LogC(InfoLevel, context, message, params)
 }
 
 func (l *Logger) Infof(message string, params ...interface{}) {
-	l.LogC(Info, nil, message, params)
+	l.LogC(InfoLevel, nil, message, params)
 }
 
 func (l *Logger) Info(message string) {
-	l.LogC(Info, nil, message, nil)
+	l.LogC(InfoLevel, nil, message, nil)
+}
+
+func (l *Logger) SetLevel(lvl Level) {
+	atomic.StoreInt32(&l.level, int32(lvl))
+}
+
+func (l *Logger) SetContext(c C) {
+	l.context.Store(c)
+
+}
+
+func (l *Logger) SetContextFunc(f func() C) {
+	l.contextFunc.Store(f)
+}
+
+func (l *Logger) SetWriter(w io.Writer) {
+	l.mu.Lock()
+	l.writer = w
+	l.mu.Unlock()
+}
+
+// Global logger
+
+func InfoC(context C, message string, params ...interface{}) {
+	defaultLogger.LogC(InfoLevel, context, message, params)
+}
+
+func Infof(message string, params ...interface{}) {
+	defaultLogger.LogC(InfoLevel, nil, message, params)
+}
+
+func Info(message string) {
+	defaultLogger.LogC(InfoLevel, nil, message, nil)
+}
+
+func SetLevel(lvl Level) {
+	defaultLogger.SetLevel(lvl)
+}
+
+func SetContext(c C) {
+	defaultLogger.SetContext(c)
+}
+
+func SetContextFunc(f func() C) {
+	defaultLogger.SetContextFunc(f)
+}
+
+func SetWriter(w io.Writer) {
+	defaultLogger.SetWriter(w)
 }
