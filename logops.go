@@ -32,6 +32,8 @@ var levelNames = [...]string{
 	noneLevel:     "NONE",
 }
 
+const ErrFieldName = "err"
+
 var bufferPool = sync.Pool{New: func() interface{} { return &bytes.Buffer{} }}
 
 var (

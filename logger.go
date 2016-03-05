@@ -2,6 +2,7 @@ package logops
 
 import (
 	"bytes"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -80,7 +81,7 @@ func (l *Logger) format(buffer *bytes.Buffer, level Level, localCx C, message st
 		m := fmt.Sprintf(message, params...)
 		fmt.Fprintf(buffer, formatPostfix, m)
 	}
-	fmt.Fprintln(buffer)
+	fmt.Fprintln(buffer) // newline at the end
 }
 
 func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}) error {
@@ -110,4 +111,24 @@ func (l *Logger) Infof(message string, params ...interface{}) {
 
 func (l *Logger) Info(message string) {
 	l.LogC(InfoLevel, nil, message, nil)
+}
+
+func (l *Logger) ErrorE(err error, context C, message string, params ...interface{}) {
+	b := bufferPool.Get().(*bytes.Buffer)
+	defer func() { b.Reset(); bufferPool.Put(b) }()
+
+	errJSON := json.NewEncoder(b).Encode(err)
+	if errJSON != nil {
+		b.Reset()
+		b.WriteString(err.Error())
+		b.WriteByte('(')
+		b.WriteString(errJSON.Error())
+		b.WriteByte(')')
+	}
+	ctx := C{}
+	for k, v := range context {
+		ctx[k] = v
+	}
+	ctx[ErrFieldName] = b.String()
+	l.LogC(ErrorLevel, ctx, message, params)
 }
