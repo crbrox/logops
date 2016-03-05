@@ -110,7 +110,7 @@ func testFormatJSON(t *testing.T, l *Logger, contextFromArg C, lvlWanted Level, 
 
 func TestSimpleMessageJSON(t *testing.T) {
 	l := NewLogger()
-	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
+	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
 			testFormatJSON(t, l, nil, lvlWanted, msgWanted, msgWanted)
 		}
@@ -119,7 +119,7 @@ func TestSimpleMessageJSON(t *testing.T) {
 
 func TestComplexMessage(t *testing.T) {
 	l := NewLogger()
-	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
+	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for i, text := range stringsForTesting {
 			format := "%s,%#v,%f"
 			cmpl := fmt.Sprintf(format, text, []int{1, i}, float64(i))
@@ -130,7 +130,7 @@ func TestComplexMessage(t *testing.T) {
 
 func TestLocalContext(t *testing.T) {
 	l := NewLogger()
-	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
+	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
 			testFormatJSON(t, l, contextForTesting, lvlWanted, msgWanted, msgWanted)
 		}
@@ -140,7 +140,7 @@ func TestLocalContext(t *testing.T) {
 func TestFuncContext(t *testing.T) {
 	l := NewLogger()
 	l.SetContextFunc(func() C { return contextForTesting })
-	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
+	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
 			testFormatJSON(t, l, nil, lvlWanted, msgWanted, msgWanted)
 		}
@@ -150,7 +150,7 @@ func TestFuncContext(t *testing.T) {
 func TestLoggerContext(t *testing.T) {
 	l := NewLogger()
 	l.SetContext(contextForTesting)
-	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
+	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
 			testFormatJSON(t, l, nil, lvlWanted, msgWanted, msgWanted)
 		}
@@ -169,7 +169,7 @@ func testLevelC(t *testing.T, levelMethod Level, method contextLogFunc) {
 	var buffer bytes.Buffer
 	l := NewLoggerWithWriter(&buffer)
 	ctx := C{"trying": "something"}
-	for loggerLevel := All; loggerLevel <= levelMethod; loggerLevel++ {
+	for loggerLevel := allLevel; loggerLevel <= levelMethod; loggerLevel++ {
 		l.SetLevel(loggerLevel)
 		buffer.Reset()
 		method(l, ctx, "a not very long message")
@@ -177,7 +177,7 @@ func testLevelC(t *testing.T, levelMethod Level, method contextLogFunc) {
 			t.Errorf("log not written for method %s when level %s", levelNames[levelMethod], levelNames[loggerLevel])
 		}
 	}
-	for loggerLevel := levelMethod + 1; loggerLevel < None; loggerLevel++ {
+	for loggerLevel := levelMethod + 1; loggerLevel < noneLevel; loggerLevel++ {
 		l.SetLevel(loggerLevel)
 		buffer.Reset()
 		method(l, ctx, "another short message")
@@ -223,7 +223,7 @@ func (TestingBadWriter) Write(b []byte) (int, error) {
 
 func TestWriteErr(t *testing.T) {
 	l := NewLoggerWithWriter(TestingBadWriter{})
-	for lvlWanted := All; lvlWanted < None; lvlWanted++ {
+	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
 			err := l.LogC(lvlWanted, contextForTesting, msgWanted, nil)
 			if err != TestingBadWriterErr {

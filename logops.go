@@ -12,13 +12,13 @@ import (
 )
 
 const (
-	All Level = iota
+	allLevel Level = iota
 	DebugLevel
 	InfoLevel
 	WarnLevel
 	ErrorLevel
 	CriticalLevel
-	None
+	noneLevel
 )
 
 type C map[string]string
@@ -28,13 +28,13 @@ var bufferPool = sync.Pool{New: func() interface{} { return &bytes.Buffer{} }}
 type Level int
 
 var levelNames = [...]string{
-	All:           "ALL",
+	allLevel:      "ALL",
 	DebugLevel:    "DEBUG",
 	InfoLevel:     "INFO",
 	WarnLevel:     "WARN",
 	ErrorLevel:    "ERROR",
 	CriticalLevel: "FATAL",
-	None:          "NONE",
+	noneLevel:     "NONE",
 }
 
 var (
@@ -70,7 +70,7 @@ func NewLoggerWithWriter(w io.Writer) *Logger {
 	l := &Logger{}
 	l.SetContextFunc(nil)
 	l.SetContext(nil)
-	l.SetLevel(All)
+	l.SetLevel(allLevel)
 	l.writer = w
 	return l
 }
