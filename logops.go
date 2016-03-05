@@ -68,8 +68,8 @@ func NewLogger() *Logger {
 }
 func NewLoggerWithWriter(w io.Writer) *Logger {
 	l := &Logger{}
-	l.SetContextFunc(func() C { return nil })
-	l.SetContext(C(nil))
+	l.SetContextFunc(nil)
+	l.SetContext(nil)
 	l.SetLevel(All)
 	l.writer = w
 	return l
