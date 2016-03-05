@@ -31,7 +31,26 @@ func NewLoggerWithWriter(w io.Writer) *Logger {
 	return l
 }
 
-func (l *Logger) format(buffer *bytes.Buffer, level Level, localCx C, message string, params ...interface{}) {
+func (l *Logger) SetLevel(lvl Level) {
+	atomic.StoreInt32(&l.level, int32(lvl))
+}
+
+func (l *Logger) SetContext(c C) {
+	l.context.Store(c)
+
+}
+
+func (l *Logger) SetContextFunc(f func() C) {
+	l.contextFunc.Store(f)
+}
+
+func (l *Logger) SetWriter(w io.Writer) {
+	l.mu.Lock()
+	l.writer = w
+	l.mu.Unlock()
+}
+
+func (l *Logger) format(buffer *bytes.Buffer, level Level, localCx C, message string, params []interface{}) {
 	var dynamicContext C
 
 	fmt.Fprintf(buffer, formatPrefix, time.Now().Format(timeFormat), levelNames[level])
@@ -68,7 +87,7 @@ func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}
 	if Level(atomic.LoadInt32(&l.level)) <= lvl {
 		buffer := bufferPool.Get().(*bytes.Buffer)
 
-		l.format(buffer, lvl, context, message, params...)
+		l.format(buffer, lvl, context, message, params)
 		l.mu.Lock()
 		_, err := l.writer.Write(buffer.Bytes())
 		l.mu.Unlock()
@@ -91,23 +110,4 @@ func (l *Logger) Infof(message string, params ...interface{}) {
 
 func (l *Logger) Info(message string) {
 	l.LogC(InfoLevel, nil, message, nil)
-}
-
-func (l *Logger) SetLevel(lvl Level) {
-	atomic.StoreInt32(&l.level, int32(lvl))
-}
-
-func (l *Logger) SetContext(c C) {
-	l.context.Store(c)
-
-}
-
-func (l *Logger) SetContextFunc(f func() C) {
-	l.contextFunc.Store(f)
-}
-
-func (l *Logger) SetWriter(w io.Writer) {
-	l.mu.Lock()
-	l.writer = w
-	l.mu.Unlock()
 }
