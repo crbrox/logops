@@ -3,30 +3,50 @@ package logops
 import (
 	"bytes"
 	"encoding/json"
-	"errors"
 	"fmt"
+	"reflect"
+	"strings"
 	"testing"
 	"time"
 )
 
-var stringsForTesting = []string{
-	"",
-	"a",
-	"aaa bbb ccc",
-	"España y olé",
-	`She said: "I know what it's like to be dead`,
-	"{}}"}
+func getString(m map[string]interface{}, name string) (string, error) {
+	obj, ok := m[name]
+	if !ok {
+		return "", fmt.Errorf("missing field %q", name)
+	}
+	str, ok := obj.(string)
+	if !ok {
+		return "", fmt.Errorf("field %q is not an string", name)
+	}
+	return str, nil
+}
 
-var contextForTesting = C{"a": "A", "b": "BB", "España": "olé",
-	"She said": `I know what it's like to be dead"`, "{": "}"}
+func compareError(o1, o2 interface{}) (bool, error) {
+	b, err := json.Marshal(o1)
+	if err != nil { // not jsonable object? o2 should be a string
+		s2, isString := o2.(string)
+		if !isString {
+			return false, fmt.Errorf("first arg is not jsonable and second is not an string")
+		}
+		// The original error should be included
+		return strings.Contains(s2, err.Error()), nil
+	}
+	var o1bis map[string]interface{}
+	err = json.Unmarshal(b, &o1bis)
+	if err != nil {
+		return false, nil
+	}
+	return reflect.DeepEqual(o1bis, o2), nil
+}
 
-func testFormatJSON(t *testing.T, l *Logger, contextFromArg C, lvlWanted Level, msgWanted, format string, params ...interface{}) {
-	var obj map[string]string
+func testFormatJSON(t *testing.T, l *Logger, ll logLine, msgWanted string) {
+	var obj map[string]interface{}
 	var buffer bytes.Buffer
 
 	start := time.Now()
 
-	l.format(&buffer, lvlWanted, contextFromArg, format, params)
+	l.format(&buffer, ll)
 	res := buffer.Bytes()
 	end := time.Now()
 
@@ -35,9 +55,9 @@ func testFormatJSON(t *testing.T, l *Logger, contextFromArg C, lvlWanted Level, 
 		t.Fatal(err)
 	}
 
-	timeStr, ok := obj["time"]
-	if !ok {
-		t.Error("missing 'time' field")
+	timeStr, err := getString(obj, "time")
+	if err != nil {
+		t.Error(err)
 	}
 	timeStamp, err := time.Parse(time.RFC3339Nano, timeStr)
 	if err != nil {
@@ -50,26 +70,26 @@ func testFormatJSON(t *testing.T, l *Logger, contextFromArg C, lvlWanted Level, 
 		t.Error("time after end")
 	}
 
-	lvl, ok := obj["lvl"]
-	if !ok {
-		t.Error("missing 'lvl' field")
+	lvl, err := getString(obj, "lvl")
+	if err != nil {
+		t.Error(err)
 	}
-	if lvl != levelNames[lvlWanted] {
-		t.Errorf("level: wanted %q, got %q", lvlWanted, lvl)
+	if lvl != levelNames[ll.level] {
+		t.Errorf("level: wanted %q, got %q", ll.level, lvl)
 	}
 
-	msg, ok := obj["msg"]
-	if !ok {
-		t.Error("missing 'msg' field")
+	msg, err := getString(obj, "msg")
+	if err != nil {
+		t.Error(err)
 	}
 	if msg != msgWanted {
-		t.Errorf("level: wanted %q, got %q", msgWanted, msg)
+		t.Errorf("msg: wanted %q, got %q", msgWanted, msg)
 	}
 
-	for k, v := range contextFromArg {
-		value, ok := obj[k]
-		if !ok {
-			t.Errorf("missing local context field %s", k)
+	for k, v := range ll.localCx {
+		value, err := getString(obj, k)
+		if err != nil {
+			t.Error(err)
 		}
 		if v != value {
 			t.Errorf("value for local context field %s: wanted %s, got %s", k, v, value)
@@ -82,10 +102,10 @@ func testFormatJSON(t *testing.T, l *Logger, contextFromArg C, lvlWanted Level, 
 		contextFromFunction = function()
 	}
 	for k, v := range contextFromFunction {
-		if _, ok := contextFromArg[k]; !ok {
-			value, ok := obj[k]
-			if !ok {
-				t.Errorf("missing func context field %s", k)
+		if _, ok := ll.localCx[k]; !ok {
+			value, err := getString(obj, k)
+			if err != nil {
+				t.Error(err)
 			}
 			if v != value {
 				t.Errorf("value for func context field %s: wanted %s, got %s", k, v, value)
@@ -94,16 +114,30 @@ func testFormatJSON(t *testing.T, l *Logger, contextFromArg C, lvlWanted Level, 
 	}
 
 	for k, v := range l.context.Load().(C) {
-		if _, ok := contextFromArg[k]; !ok {
-			if _, ok := contextFromFunction[k]; !ok {
-				value, ok := obj[k]
-				if !ok {
-					t.Errorf("missing logger context field %s", k)
+		if _, ok := ll.localCx[k]; !ok {
+			if _, ok := ll.localCx[k]; !ok {
+				value, err := getString(obj, k)
+				if err != nil {
+					t.Error(err)
 				}
 				if v != value {
 					t.Errorf("value for logger context field %s: wanted %s, got %s", k, v, value)
 				}
 			}
+		}
+	}
+
+	if ll.err != nil {
+		errObj, ok := obj[ErrFieldName]
+		if !ok {
+			t.Errorf("missing field  %q", ErrFieldName)
+		}
+		areEqual, err := compareError(ll.err, errObj)
+		if err != nil {
+			t.Error(err)
+		}
+		if !areEqual {
+			t.Errorf("value for field %s: wanted %s, got %s", ErrFieldName, ll.err, errObj)
 		}
 	}
 }
@@ -112,7 +146,7 @@ func TestSimpleMessageJSON(t *testing.T) {
 	l := NewLogger()
 	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
-			testFormatJSON(t, l, nil, lvlWanted, msgWanted, msgWanted)
+			testFormatJSON(t, l, logLine{level: lvlWanted, message: msgWanted}, msgWanted)
 		}
 	}
 }
@@ -122,8 +156,11 @@ func TestComplexMessage(t *testing.T) {
 	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for i, text := range stringsForTesting {
 			format := "%s,%#v,%f"
-			cmpl := fmt.Sprintf(format, text, []int{1, i}, float64(i))
-			testFormatJSON(t, l, nil, lvlWanted, cmpl, format, text, []int{1, i}, float64(i))
+			params := []interface{}{text, []int{1, i}, float64(i)}
+			msgWanted := fmt.Sprintf(format, params...)
+			testFormatJSON(t, l,
+				logLine{level: lvlWanted, message: format, params: params},
+				msgWanted)
 		}
 	}
 }
@@ -132,7 +169,9 @@ func TestLocalContext(t *testing.T) {
 	l := NewLogger()
 	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
-			testFormatJSON(t, l, contextForTesting, lvlWanted, msgWanted, msgWanted)
+			testFormatJSON(t, l,
+				logLine{localCx: contextForTesting, level: lvlWanted, message: msgWanted},
+				msgWanted)
 		}
 	}
 }
@@ -142,7 +181,9 @@ func TestFuncContext(t *testing.T) {
 	l.SetContextFunc(func() C { return contextForTesting })
 	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
-			testFormatJSON(t, l, nil, lvlWanted, msgWanted, msgWanted)
+			testFormatJSON(t, l,
+				logLine{level: lvlWanted, message: msgWanted},
+				msgWanted)
 		}
 	}
 }
@@ -152,18 +193,14 @@ func TestLoggerContext(t *testing.T) {
 	l.SetContext(contextForTesting)
 	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
-			testFormatJSON(t, l, nil, lvlWanted, msgWanted, msgWanted)
+			testFormatJSON(t, l,
+				logLine{level: lvlWanted, message: msgWanted},
+				msgWanted)
 		}
 	}
 }
 
 func TestAllContexts(t *testing.T) { t.Skip("to be implemented") }
-
-type (
-	contextLogFunc    func(l *Logger, context C, message string, params ...interface{})
-	formatLogFunc     func(l *Logger, message string, params ...interface{})
-	simpleLogFunction func(l *Logger, message string)
-)
 
 func testLevelC(t *testing.T, levelMethod Level, method contextLogFunc) {
 	var buffer bytes.Buffer
@@ -211,24 +248,4 @@ func TestInfo(t *testing.T) {
 
 func TestInfoC(t *testing.T) {
 	testLevelC(t, InfoLevel, (*Logger).InfoC)
-}
-
-type testingBadWriter struct{}
-
-var errTestingBadWriter = errors.New("life goes on bra!")
-
-func (testingBadWriter) Write(b []byte) (int, error) {
-	return 0, errTestingBadWriter
-}
-
-func TestWriteErr(t *testing.T) {
-	l := NewLoggerWithWriter(testingBadWriter{})
-	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
-		for _, msgWanted := range stringsForTesting {
-			err := l.LogC(lvlWanted, contextForTesting, msgWanted, nil)
-			if err != errTestingBadWriter {
-				t.Errorf("writer error: want %#v, got %#v", errTestingBadWriter, err)
-			}
-		}
-	}
 }

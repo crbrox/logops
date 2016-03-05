@@ -6,15 +6,15 @@ import "io"
 var defaultLogger = NewLogger()
 
 func InfoC(context C, message string, params ...interface{}) {
-	defaultLogger.LogC(InfoLevel, context, message, params)
+	defaultLogger.LogC(logLine{level: InfoLevel, localCx: context, message: message, params: params})
 }
 
 func Infof(message string, params ...interface{}) {
-	defaultLogger.LogC(InfoLevel, nil, message, params)
+	defaultLogger.LogC(logLine{level: InfoLevel, message: message, params: params})
 }
 
 func Info(message string) {
-	defaultLogger.LogC(InfoLevel, nil, message, nil)
+	defaultLogger.LogC(logLine{level: InfoLevel, message: message})
 }
 
 func SetLevel(lvl Level) {

@@ -34,13 +34,12 @@ var levelNames = [...]string{
 
 const ErrFieldName = "err"
 
-var bufferPool = sync.Pool{New: func() interface{} { return &bytes.Buffer{} }}
-
 var (
 	timeFormat    string
-	formatPrefix  string
-	formatField   string
-	formatPostfix string
+	prefixFormat  string
+	fieldFormat   string
+	errorFormat   string
+	postfixFormat string
 )
 
 func init() {
@@ -54,14 +53,35 @@ func init() {
 
 func setJSONFormat() {
 	timeFormat = time.RFC3339Nano
-	formatPrefix = `{"time":%q, "lvl":%q`
-	formatField = ",%q:%q"
-	formatPostfix = `,"msg":%q}`
+	prefixFormat = `{"time":%q, "lvl":%q`
+	fieldFormat = ",%q:%q"
+	errorFormat = ",%q:%s"
+	postfixFormat = `,"msg":%q}`
+
 }
 
 func setTextFormat() {
 	timeFormat = "15:04:05.000"
-	formatPrefix = "%s %s\t" // time and level
-	formatField = " [%s=%s]" // key and value
-	formatPostfix = " %s"    // message
+	prefixFormat = "%s %s\t" // time and level
+	fieldFormat = " [%s=%s]" // key and value
+	errorFormat = " [%s=%s]" // key and value
+	postfixFormat = " %s"    // message
+}
+
+var bufferPool = sync.Pool{New: func() interface{} { return &bytes.Buffer{} }}
+
+func getBuffer() *bytes.Buffer {
+	return bufferPool.Get().(*bytes.Buffer)
+}
+func putBuffer(buffer *bytes.Buffer) {
+	buffer.Reset()
+	bufferPool.Put(buffer)
+}
+
+type logLine struct {
+	level   Level
+	localCx C
+	message string
+	params  []interface{}
+	err     error
 }

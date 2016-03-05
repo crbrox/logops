@@ -51,50 +51,82 @@ func (l *Logger) SetWriter(w io.Writer) {
 	l.mu.Unlock()
 }
 
-func (l *Logger) format(buffer *bytes.Buffer, level Level, localCx C, message string, params []interface{}) {
+func (l *Logger) format(buffer *bytes.Buffer, lline logLine) {
 	var dynamicContext C
+	now := time.Now()
+	fmt.Fprintf(buffer, prefixFormat, now.Format(timeFormat), levelNames[lline.level])
 
-	fmt.Fprintf(buffer, formatPrefix, time.Now().Format(timeFormat), levelNames[level])
-	for k, v := range localCx {
-		fmt.Fprintf(buffer, formatField, k, v)
+	if lline.err != nil {
+		errMsg := formatError(lline.err)
+		fmt.Fprintf(buffer, errorFormat, ErrFieldName, errMsg)
+	}
+
+	for k, v := range lline.localCx {
+		if lline.err != nil && k == ErrFieldName {
+			continue
+		}
+		fmt.Fprintf(buffer, fieldFormat, k, v)
 	}
 	contextFunc := l.contextFunc.Load().(func() C)
 	if contextFunc != nil {
 		dynamicContext = contextFunc()
 		for k, v := range dynamicContext {
-			if _, already := localCx[k]; !already {
-				fmt.Fprintf(buffer, formatField, k, v)
+			if lline.err != nil && k == ErrFieldName {
+				continue
+			}
+			if _, already := lline.localCx[k]; !already {
+				fmt.Fprintf(buffer, fieldFormat, k, v)
 			}
 		}
 	}
 	loggerContext := l.context.Load().(C)
 	for k, v := range loggerContext {
-		if _, already := localCx[k]; !already {
+		if lline.err != nil && k == ErrFieldName {
+			continue
+		}
+		if _, already := lline.localCx[k]; !already {
 			if _, already := dynamicContext[k]; !already {
-				fmt.Fprintf(buffer, formatField, k, v)
+				fmt.Fprintf(buffer, fieldFormat, k, v)
 			}
 		}
 	}
-	if len(params) == 0 {
-		fmt.Fprintf(buffer, formatPostfix, message)
+	if len(lline.params) == 0 {
+		fmt.Fprintf(buffer, postfixFormat, lline.message)
 	} else {
-		m := fmt.Sprintf(message, params...)
-		fmt.Fprintf(buffer, formatPostfix, m)
+		m := fmt.Sprintf(lline.message, lline.params...)
+		fmt.Fprintf(buffer, postfixFormat, m)
 	}
 	fmt.Fprintln(buffer) // newline at the end
 }
 
-func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}) error {
-	if Level(atomic.LoadInt32(&l.level)) <= lvl {
-		buffer := bufferPool.Get().(*bytes.Buffer)
+func formatError(err error) string {
+	b := getBuffer()
+	defer putBuffer(b)
+	errJSON := json.NewEncoder(b).Encode(err)
+	if errJSON != nil {
+		b.Reset()
+		b.WriteString(err.Error())
+		b.WriteByte(' ')
+		b.WriteByte('(')
+		b.WriteString(errJSON.Error())
+		b.WriteByte(')')
+		return fmt.Sprintf("%q", b.String()) // the string as a valid JSON object
+	}
+	b.Truncate(b.Len() - 1) // remove trailing newline
+	return b.String()
+}
 
-		l.format(buffer, lvl, context, message, params)
+func (l *Logger) LogC(ll logLine) error {
+	if Level(atomic.LoadInt32(&l.level)) <= ll.level {
+
+		b := getBuffer()
+
+		l.format(b, ll)
 		l.mu.Lock()
-		_, err := l.writer.Write(buffer.Bytes())
+		_, err := l.writer.Write(b.Bytes())
 		l.mu.Unlock()
 
-		buffer.Reset()
-		bufferPool.Put(buffer)
+		putBuffer(b)
 
 		return err
 	}
@@ -102,33 +134,18 @@ func (l *Logger) LogC(lvl Level, context C, message string, params []interface{}
 }
 
 func (l *Logger) InfoC(context C, message string, params ...interface{}) {
-	l.LogC(InfoLevel, context, message, params)
+	l.LogC(logLine{level: InfoLevel, localCx: context, message: message, params: params})
 }
 
 func (l *Logger) Infof(message string, params ...interface{}) {
-	l.LogC(InfoLevel, nil, message, params)
+	l.LogC(logLine{level: InfoLevel, message: message, params: params})
 }
 
 func (l *Logger) Info(message string) {
-	l.LogC(InfoLevel, nil, message, nil)
+	l.LogC(logLine{level: InfoLevel, message: message})
 }
 
 func (l *Logger) ErrorE(err error, context C, message string, params ...interface{}) {
-	b := bufferPool.Get().(*bytes.Buffer)
-	defer func() { b.Reset(); bufferPool.Put(b) }()
 
-	errJSON := json.NewEncoder(b).Encode(err)
-	if errJSON != nil {
-		b.Reset()
-		b.WriteString(err.Error())
-		b.WriteByte('(')
-		b.WriteString(errJSON.Error())
-		b.WriteByte(')')
-	}
-	ctx := C{}
-	for k, v := range context {
-		ctx[k] = v
-	}
-	ctx[ErrFieldName] = b.String()
-	l.LogC(ErrorLevel, ctx, message, params)
+	l.LogC(logLine{err: err, level: ErrorLevel, localCx: context, message: message, params: params})
 }
