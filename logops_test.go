@@ -213,21 +213,21 @@ func TestInfoC(t *testing.T) {
 	testLevelC(t, InfoLevel, (*Logger).InfoC)
 }
 
-type TestingBadWriter struct{}
+type testingBadWriter struct{}
 
-var TestingBadWriterErr = errors.New("life goes on bra!")
+var errTestingBadWriter = errors.New("life goes on bra!")
 
-func (TestingBadWriter) Write(b []byte) (int, error) {
-	return 0, TestingBadWriterErr
+func (testingBadWriter) Write(b []byte) (int, error) {
+	return 0, errTestingBadWriter
 }
 
 func TestWriteErr(t *testing.T) {
-	l := NewLoggerWithWriter(TestingBadWriter{})
+	l := NewLoggerWithWriter(testingBadWriter{})
 	for lvlWanted := allLevel; lvlWanted < noneLevel; lvlWanted++ {
 		for _, msgWanted := range stringsForTesting {
 			err := l.LogC(lvlWanted, contextForTesting, msgWanted, nil)
-			if err != TestingBadWriterErr {
-				t.Errorf("writer error: want %#v, got %#v", TestingBadWriterErr, err)
+			if err != errTestingBadWriter {
+				t.Errorf("writer error: want %#v, got %#v", errTestingBadWriter, err)
 			}
 		}
 	}
